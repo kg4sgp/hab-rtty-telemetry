@@ -26,7 +26,7 @@ static unsigned int count = 1;
 /* 50bps - 785, 700, 50 */
 /* 50bps - 870, 700, 50 */
 /* 75bps - 870, 700, 75 */
-/* 110bps - 1050, 700, 110 */
+/*110bps - 1050, 700, 110 */
 
 static unsigned int fmark = 870;
 static unsigned int fspac = 700;
@@ -84,6 +84,8 @@ static char fsm_state = (char)0;
 static char commas = (char)0;
 static char lastcomma = (char)0;
 static char callsign_count = 0;
+
+uint16_t adcval = 0;
 
 unsigned short crc16(char * crcmsg, unsigned int size)
 {
@@ -214,6 +216,15 @@ int main(void)
   TCCR2B = _BV(CS20); /* TinyDuino at 8MHz */
   /*TCCR2B = _BV(CS21);*/  /* Arduino at 16MHz */
   TIMSK2 = _BV(TOIE2);
+  
+  /* ADC Stuff */
+  ADCSRA |= ((1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0));  
+  ADMUX |= (1 << REFS0) | (1 <<REFS1);
+  ADCSRB &= (uint8_t)(~((1<<ADTS2)|(1<<ADTS1)|(1<<ADTS0)));
+  ADCSRA |= (1<<ADATE);
+  ADCSRA |= (1<<ADEN);
+  ADCSRA |= (1<<ADSC);
+  
   
   /* begin serial communication */
   UCSR0B = (1 << RXEN0) | (1 << TXEN0);
@@ -433,8 +444,12 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     
     /* convert back to strings */
     dtostrf(lat_f, 8, 5, latitude);
-    dtostrf(lon_f, 8, 5, longitude);   
-
+    dtostrf(lon_f, 8, 5, longitude);
+    
+    uint16_t bvolt = ADCW;
+    char sbvolt[5];
+    sprintf(sbvolt, "%d", bvolt);
+    
     /* make crc message first */
     if (callsign_count == 0) {
       strncpy(msg, call,      (size_t)maxmsg);
@@ -449,6 +464,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, altitude,  (size_t)8);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, utc_time,  (size_t)6);
+    strncat(msg, delim,     (size_t)1);
+    strncat(msg, sbvolt,    (size_t)4);
     strncat(msg, delim,     (size_t)1);
     ncrc = crc16(msg, strnlen(msg, maxmsg));
     sprintf(mcrc, "%04hX", ncrc);
@@ -468,6 +485,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, delim,     (size_t)1);
     strncat(msg, utc_time,  (size_t)6);
     strncat(msg, delim,     (size_t)1);
+    strncat(msg, sbvolt,    (size_t)4);
+    strncat(msg, delim,     (size_t)1);
     strncat(msg, mcrc,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, nl,        (size_t)1);
@@ -478,7 +497,7 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     commas = (char)0;
     fsm_state = (char)0;
     callsign_count++;
-    if (callsign_count > 5) callsign_count = 0;
+    if (callsign_count > 0) callsign_count = 0;
     tx = (unsigned char)1;
   }
   
