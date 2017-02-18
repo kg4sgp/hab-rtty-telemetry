@@ -52,7 +52,7 @@ splint:
 	splint +load iom328p -DF_CPU=16000000L -I${AVR}/include *.c
 
 flash:
-	avrdude -p m328p -c arduino -P /dev/ttyUSB0 -vvv -b 57600 -D -U flash:w:rtty-telem.c.hex
+	avrdude -p m328p -c arduino -P /dev/ttyUSB1 -vvv -b 57600 -D -U flash:w:rtty-telem.c.hex
 
 # Add all analysis tools here to run them all with one command.
 analyze:

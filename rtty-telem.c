@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <util/delay.h>
 #include <string.h>
 #include "ita2.h"
 #include "pwmsine.h"
@@ -218,12 +219,14 @@ int main(void)
   TIMSK2 = _BV(TOIE2);
   
   /* ADC Stuff */
-  ADCSRA |= ((1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0));  
+  ADCSRA |= ((1 << ADPS2) | (1 << ADPS1) /*| (1 << ADPS0)*/);  
   ADMUX |= (1 << REFS0) | (1 <<REFS1);
-  ADCSRB &= (uint8_t)(~((1<<ADTS2)|(1<<ADTS1)|(1<<ADTS0)));
-  ADCSRA |= (1<<ADATE);
+  /* ADCSRB &= (uint8_t)(~((1<<ADTS2)|(1<<ADTS1)|(1<<ADTS0))); */
+  /* ADCSRA |= (1<<ADATE); */
   ADCSRA |= (1<<ADEN);
-  ADCSRA |= (1<<ADSC);
+  /* ADCSRA |= (1<<ADSC); */
+
+  
   
   
   /* begin serial communication */
@@ -446,9 +449,19 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     dtostrf(lat_f, 8, 5, latitude);
     dtostrf(lon_f, 8, 5, longitude);
     
+    ADMUX &= 0xf0;
+    ADCSRA |= (1<<ADSC);
+    while (ADCSRA & (1 << ADSC));
     uint16_t bvolt = ADCW;
     char sbvolt[5];
     sprintf(sbvolt, "%d", bvolt);
+
+    //ADMUX |= 0x02;
+    //ADCSRA |= (1<<ADSC);
+    //while (ADCSRA & (1 << ADSC));
+    //uint16_t tmp = ADCW;
+    //char stmp[5];
+    //sprintf(stmp, "%d", tmp);
     
     /* make crc message first */
     if (callsign_count == 0) {
@@ -466,6 +479,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, utc_time,  (size_t)6);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, sbvolt,    (size_t)4);
+    //strncat(msg, delim,     (size_t)1);
+    //strncat(msg, stmp,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
     ncrc = crc16(msg, strnlen(msg, maxmsg));
     sprintf(mcrc, "%04hX", ncrc);
@@ -486,6 +501,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, utc_time,  (size_t)6);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, sbvolt,    (size_t)4);
+    //strncat(msg, delim,     (size_t)1);
+    //strncat(msg, stmp,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, mcrc,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
