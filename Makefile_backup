@@ -27,11 +27,15 @@ paranoid: rtty-telem.c
 	-Wunused-value -Wunused-variable -Wvariadic-macros \
 	-Wvolatile-register-var -Wwrite-strings \
 	-mmcu=atmega328p -DF_CPU=16000000L -MMD -DUSB_VID=null -DUSB_PID=null -DARDUINO=105 \
+	-I${ARDUINO}/hardware/arduino/cores/arduino \
+	-I${ARDUINO}/hardware/arduino/variants/standard \
 	rtty-telem.c -o rtty-telem.c.o
 
 pedantic: rtty-telem.c
 	avr-g++ -c -g -Os -Wall -pedantic -ansi -fno-exceptions -ffunction-sections -fdata-sections \
 	-mmcu=atmega328p -DF_CPU=16000000L -MMD -DUSB_VID=null -DUSB_PID=null -DARDUINO=105 \
+	-I${ARDUINO}/hardware/arduino/cores/arduino \
+	-I${ARDUINO}/hardware/arduino/variants/standard \
 	rtty-telem.c -o rtty-telem.c.o
 
 link: paranoid

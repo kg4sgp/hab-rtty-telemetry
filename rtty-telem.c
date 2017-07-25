@@ -13,7 +13,7 @@
 #include "pwmsine.h"
 
 unsigned short crc16(char * , unsigned int);
-
+uint16_t readVcc(void);
 
 static unsigned int sampleRate = 60000; /*62500; */
 static unsigned int tableSize = 1024; /* (unsigned int)(sizeof(sine)/sizeof(char)); */
@@ -69,14 +69,16 @@ static float lon_f = 0;
 /* GPS Data */
 static const char buflen = (char)16;
 static char utc_time[16] = "";
-static char longitude[16] = "";
+static char lon[16] = "";
 static char NS[1] = "";
-static char latitude[16] = "";
+static char lat[16] = "";
 static char EW[1] = "";
 static char altitude[16] = "";
 static char alt_units[1] = "";
 static char strbuf[3] = "";
 static char mcrc[5] = "";
+static char lock[1] = "";
+static char svcc[5] = "";
 static volatile unsigned short ncrc = 0;
 
 /* Intialize Finite fsm_state Machine */
@@ -87,6 +89,25 @@ static char lastcomma = (char)0;
 static char callsign_count = 0;
 
 uint16_t adcval = 0;
+uint16_t vin_mv = 0;
+
+uint16_t readVcc(void)
+{ 
+
+  long resultl; // Read 1.1V reference against AVcc 
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  _delay_ms(3); // Wait for Vref to settle 
+  ADCSRA |= _BV(ADSC);
+
+  // Convert 
+  while (bit_is_set(ADCSRA,ADSC));
+
+  resultl = ADCL;
+  resultl |= ADCH<<8;
+  uint16_t result = (uint16_t)(1126400L / resultl); // Back-calculate AVcc in mV 
+
+  return result;
+}
 
 unsigned short crc16(char * crcmsg, unsigned int size)
 {
@@ -366,10 +387,10 @@ ISR(/*@ unused @*/ USART_RX_vect) {
 
     if (buffer[(int)buflen-1] == ',' && commas == (char)3){
       int j;
-      latitude[0] = '\0';
+      lat[0] = '\0';
       for (j = (int)lastcomma; j < (int)buflen-1; j++) {
         strbuf[0] = buffer[j];
-        strncat(latitude, strbuf, (size_t)(buflen-(char)1)-(unsigned int)j);
+        strncat(lat, strbuf, (size_t)(buflen-(char)1)-(unsigned int)j);
       }
 
       fsm_state = (char)3;
@@ -388,10 +409,10 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     /* Grab longitude */
     if (buffer[(int)buflen-1] == ',' && commas == (char)5){
       int j;
-      longitude[0] = '\0';
+      lon[0] = '\0';
       for (j = (int)lastcomma; j < (int)buflen-1; j++) {
         strbuf[0] = buffer[j];
-        strncat(longitude, strbuf, (size_t)(buflen-(char)1)-(unsigned int)j);
+        strncat(lon, strbuf, (size_t)(buflen-(char)1)-(unsigned int)j);
       }
 
       fsm_state = (char)5;
@@ -407,6 +428,14 @@ ISR(/*@ unused @*/ USART_RX_vect) {
 
   } else if (fsm_state == (char)6) {
 
+    /* Grab GPS Lock */
+    if (buffer[(int)buflen-1] == ',' && commas == (char)7){
+      strncpy(lock, &buffer[(int)buflen-2], 1);
+      fsm_state = (char)7;
+    }
+
+  } else if (fsm_state == (char)7) {
+
     /* Grab altitude */
     if (buffer[(int)buflen-1] == ',' && commas == (char)10){
       int j;
@@ -416,18 +445,18 @@ ISR(/*@ unused @*/ USART_RX_vect) {
         strncat(altitude, strbuf, (size_t)(buflen-(char)1)-(unsigned int)j);
       }
 
-      fsm_state = (char)7;
-    }
-
-  } else if (fsm_state == (char)7) {
-
-    /* Grab altitude units */
-    if (buffer[(int)buflen-1] == ',' && commas == (char)11){
-      strncpy(alt_units, &buffer[(int)buflen-2], 1);
       fsm_state = (char)8;
     }
 
   } else if (fsm_state == (char)8) {
+
+    /* Grab altitude units */
+    if (buffer[(int)buflen-1] == ',' && commas == (char)11){
+      strncpy(alt_units, &buffer[(int)buflen-2], 1);
+      fsm_state = (char)9;
+    }
+
+  } else if (fsm_state == (char)9) {
     
     /* clear lat and lon */
     lat_deg = (char)0;
@@ -435,26 +464,25 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     lat_f = (char)0;
     lon_f = (char)0;
 
-    /* convert lat and lon from deg decimal-minutes, to decimal degrees */
-    lat_deg = (char)( ((latitude[0]-(char)48)*(char)10) + (latitude[1]-(char)48));
-    lat_f = (float)lat_deg + ((float)atof(&latitude[2]))/60;
-    lon_deg = (char)( ((longitude[0]-(char)48)*(char)100)+((longitude[1]-(char)48)*(char)10)+(longitude[2]-(char)48) );
-    lon_f = (float)lon_deg + ((float)atof(&longitude[3]))/60;
+    /* If GPS has locked to GPS or DGPS */
+    if(lock[0] != '0') {
+      /* convert lat and lon from deg decimal-minutes, to decimal degrees */
+      lat_deg = (char)( ((lat[0]-(char)48)*(char)10) + (lat[1]-(char)48));
+      lat_f = (float)lat_deg + ((float)atof(&lat[2]))/60;
+      lon_deg = (char)( ((lon[0]-(char)48)*(char)100)+((lon[1]-(char)48)*(char)10)+(lon[2]-(char)48) );
+      lon_f = (float)lon_deg + ((float)atof(&lon[3]))/60;
 
-    /* make negative if needed */
-    if (NS[0] == 'S') lat_f = -lat_f;     
-    if (EW[0] == 'W') lon_f = -lon_f;   
+      /* make negative if needed */
+      if (NS[0] == 'S') lat_f = -lat_f;     
+      if (EW[0] == 'W') lon_f = -lon_f;   
     
-    /* convert back to strings */
-    dtostrf(lat_f, 8, 5, latitude);
-    dtostrf(lon_f, 8, 5, longitude);
-    
-    ADMUX &= 0xf0;
-    ADCSRA |= (1<<ADSC);
-    while (ADCSRA & (1 << ADSC));
-    uint16_t bvolt = ADCW;
-    char sbvolt[5];
-    sprintf(sbvolt, "%d", bvolt);
+      /* convert back to strings */
+      dtostrf(lat_f, 8, 5, lat);
+      dtostrf(lon_f, 8, 5, lon);
+    }
+
+    vin_mv = readVcc();
+    sprintf(svcc, "%d", vin_mv);
 
     //ADMUX |= 0x02;
     //ADCSRA |= (1<<ADSC);
@@ -470,17 +498,17 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     } else {
       strncpy(msg, delim,     (size_t)maxmsg);
     }
-    strncat(msg, latitude,  (size_t)9);
+    strncat(msg, lat,       strlen(lat));
     strncat(msg, delim,     (size_t)1);
-    strncat(msg, longitude, (size_t)10);
+    strncat(msg, lon,       strlen(lon));
     strncat(msg, delim,     (size_t)1);
     strncat(msg, altitude,  (size_t)8);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, utc_time,  (size_t)6);
     strncat(msg, delim,     (size_t)1);
-    strncat(msg, sbvolt,    (size_t)4);
-    //strncat(msg, delim,     (size_t)1);
-    //strncat(msg, stmp,      (size_t)4);
+    strncat(msg, svcc,    (size_t)4);
+    strncat(msg, delim,     (size_t)1);
+    strncat(msg, lock,      (size_t)1);
     strncat(msg, delim,     (size_t)1);
     ncrc = crc16(msg, strnlen(msg, maxmsg));
     sprintf(mcrc, "%04hX", ncrc);
@@ -492,17 +520,17 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     
     if (callsign_count == 0) strncat(msg, call,      (size_t)6);
     strncat(msg, delim,     (size_t)1);
-    strncat(msg, latitude,  (size_t)9);
+    strncat(msg, lat,       strlen(lat));
     strncat(msg, delim,     (size_t)1);
-    strncat(msg, longitude, (size_t)10);
+    strncat(msg, lon,       strlen(lon));
     strncat(msg, delim,     (size_t)1);
     strncat(msg, altitude,  (size_t)16);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, utc_time,  (size_t)6);
     strncat(msg, delim,     (size_t)1);
-    strncat(msg, sbvolt,    (size_t)4);
-    //strncat(msg, delim,     (size_t)1);
-    //strncat(msg, stmp,      (size_t)4);
+    strncat(msg, svcc,      (size_t)5);
+    strncat(msg, delim,     (size_t)1);
+    strncat(msg, lock,      (size_t)1);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, mcrc,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
