@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <util/delay.h>
 #include <string.h>
 #include "ita2.h"
@@ -79,6 +80,7 @@ static char strbuf[3] = "";
 static char mcrc[5] = "";
 static char lock[1] = "";
 static char svcc[5] = "";
+static char pcnt[5] = "";
 static volatile unsigned short ncrc = 0;
 
 /* Intialize Finite fsm_state Machine */
@@ -88,8 +90,13 @@ static char commas = (char)0;
 static char lastcomma = (char)0;
 static char callsign_count = 0;
 
+/* ADC Stuff */
 uint16_t adcval = 0;
 uint16_t vin_mv = 0;
+
+/* EEPROM Related */
+uint16_t * cnt_loc = (uint16_t *) 2;
+uint16_t packet_n = 0;
 
 uint16_t readVcc(void)
 { 
@@ -137,6 +144,8 @@ static void init()
   dspac = (unsigned int)((2*(long)tableSize*(long)fspac)/((long)sampleRate));
   tableSize = (unsigned int)(sizeof(sine)/sizeof(char)); 
   sampPerSymb = (unsigned int)(sampleRate/baud);
+
+  packet_n = eeprom_read_word((uint16_t *) cnt_loc);
 }
 
 static unsigned char calcAmp()
@@ -346,6 +355,18 @@ ISR(/*@ unused @*/ USART_RX_vect) {
 
   if(buffer[(int)buflen-1] == ',') commas = (char)(commas + (char)1);
 
+  /*reset packet counter in eeprom on rsteep */
+  if (buffer[(int)buflen-6] == 'r' &&
+      buffer[(int)buflen-5] == 's' &&
+      buffer[(int)buflen-4] == 't' &&
+      buffer[(int)buflen-3] == 'e' &&
+      buffer[(int)buflen-2] == 'e' &&
+      buffer[(int)buflen-1] == 'p'){
+    eeprom_write_word((uint16_t *) cnt_loc, (uint16_t)0);
+    packet_n = eeprom_read_word((uint16_t *) cnt_loc);
+    UDR0 = 'K';
+  }
+
   /* reset FSM on new data frame */
   if(buffer[(int)buflen-1] == '$') {
     commas = (char)0;
@@ -457,7 +478,11 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     }
 
   } else if (fsm_state == (char)9) {
-    
+   
+    packet_n++;
+    eeprom_write_word((uint16_t *) cnt_loc, (uint16_t)packet_n); 
+    sprintf(pcnt, "%d", packet_n);
+ 
     /* clear lat and lon */
     lat_deg = (char)0;
     lon_deg = (char)0;
@@ -510,6 +535,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, delim,     (size_t)1);
     strncat(msg, lock,      (size_t)1);
     strncat(msg, delim,     (size_t)1);
+    strncat(msg, pcnt,      (size_t)5);
+    strncat(msg, delim,     (size_t)1);
     ncrc = crc16(msg, strnlen(msg, maxmsg));
     sprintf(mcrc, "%04hX", ncrc);
 
@@ -531,6 +558,8 @@ ISR(/*@ unused @*/ USART_RX_vect) {
     strncat(msg, svcc,      (size_t)5);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, lock,      (size_t)1);
+    strncat(msg, delim,     (size_t)1);
+    strncat(msg, pcnt,      (size_t)5);
     strncat(msg, delim,     (size_t)1);
     strncat(msg, mcrc,      (size_t)4);
     strncat(msg, delim,     (size_t)1);
